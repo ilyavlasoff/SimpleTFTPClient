@@ -235,7 +235,9 @@ uint8_t on_receive_chunk_ready(char **buffer, int received_size, int file_handle
 
 	int received_data_buffer_size = 0;
 	int16_t block_num = parse_data_response(buffer, received_size, &received_buffer, &received_data_buffer_size);
-	ssize_t save_file_status = write(file_handle, &received_buffer, received_data_buffer_size);
+	printf("Recorded %d, size %d\n", block_num, received_data_buffer_size);
+	//lseek(file_handle, (block_num-1)*512, SEEK_SET);
+	ssize_t save_file_status = write(file_handle, received_buffer, received_data_buffer_size);
 
 	if (save_file_status < received_data_buffer_size)
 	{
@@ -298,7 +300,7 @@ int16_t parse_data_response(char **receive_buffer, int data_length, char **desti
 	int16_t block_num = (int16_t)(((*receive_buffer)[2] << 8) | (*receive_buffer)[3]);
 
 	int useful_data_len = data_length - header_size;
-	memcpy(&((*receive_buffer)[4]), *destination_data_buffer, useful_data_len);
+	memcpy(*destination_data_buffer, &((*receive_buffer)[4]), useful_data_len);
 	*dest_data_buffer_size = useful_data_len;
 	return block_num;
 }
