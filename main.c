@@ -11,7 +11,7 @@ int32_t main(int32_t argc, char* argv[])
 {
 	if (argc < 6)
 	{
-		printf("Not enough arguments, at least 5 required\n");
+		fprintf(stderr, "Not enough arguments, at least 5 required\n");
 		return INCORRECT_ARGS_ERROR;
 	}
 
@@ -26,7 +26,7 @@ int32_t main(int32_t argc, char* argv[])
 		op_type = opreceive;
 	}
 	else {
-		printf("Unsupported operation type: %s\n", typestr);
+		fprintf(stderr, "Unsupported operation type: %s\n", typestr);
 		return INCORRECT_ARGS_ERROR;
 	}
 
@@ -41,7 +41,7 @@ int32_t main(int32_t argc, char* argv[])
 
 	if(usocket == -1)
 	{
-		printf("Unable to create UDP socket\n");
+		fprintf(stderr, "Unable to create UDP socket: %s\n", strerror(errno));
 		return SOCKET_ERROR;
 	}
 
@@ -52,14 +52,14 @@ int32_t main(int32_t argc, char* argv[])
 	int addr_resolv = inet_aton(server_addr, &sockaddr.sin_addr);
 	if (addr_resolv == 0)
 	{
-		printf("Unable to resolve host name\n");
+		fprintf(stderr, "Unable to resolve host name: %s\n", strerror(errno));
 		return SOCKET_ERROR;
 	}
 
 	socklen_t slen = sizeof(sockaddr);
+	sa = &sockaddr;
 
 	uint8_t operation_status = 0;
-	sa = &sockaddr;
 	if (op_type == opsend)
 	{
 		operation_status = tsend(usocket, &sa, &slen, source_filename, destination_filename);
@@ -71,69 +71,84 @@ int32_t main(int32_t argc, char* argv[])
 
 	if (operation_status != SUCCESS)
 	{
-		printf("Unable to complete operation\n");
+		fprintf(stderr, "Unable to complete operation: %s\n", strerror(errno));
 	}
 
 	return operation_status;
 }
 
-uint8_t tsend(int send_socket, struct sockaddr_in** sockaddr, size_t* slen, const char* source_filename, const char* destination_filename)
+uint8_t tsend(int send_socket, struct sockaddr_in** sockaddr, socklen_t* slen, const char* source_filename, const char* destination_filename)
 {
-	int32_t file_handle = open(source_filename, O_RDONLY);
+	int file_handle = open(source_filename, O_RDONLY);
 	if (file_handle == INVALID_HANDLE_VALUE)
 	{
-		printf("Unable to open file. Try again\n");
+		fprintf(stderr, "Unable to open file: %s\n", strerror(errno));
 		return FILE_CREATION_ERROR;
 	}
 
-	char* request_buffer = NULL;
-	const char* mode = "octet";
+	char* request_buffer;
 	operation_type optype = opsend;
-	size_t buffer_length = make_rwrq_message(optype, destination_filename, mode, &request_buffer);
+
+	size_t buffer_length = make_rwrq_message(optype, destination_filename, "octet", &request_buffer);
+	if (buffer_length == 0)
+	{
+		fprintf(stderr, "Unable to create buffer: %s\n", strerror(errno));
+		return MEM_ALLOCATION_ERROR;
+	}
 
 	uint8_t send_data_status = send_data(send_socket, &request_buffer, buffer_length, sockaddr, slen);
 	if (send_data_status != SUCCESS)
 	{
-		printf("Unable to send data\n");
+		fprintf(stderr, "Unable to send data: Error%d\n", send_data_status);
 		return send_data_status;
 	}
+	free(request_buffer);
 
 	int receive_data_status = receive_data(send_socket, optype, file_handle, sockaddr, slen);
 	if (receive_data_status != SUCCESS)
 	{
-		printf("Unable to receive data. Try again");
+		fprintf(stderr, "Unable to receive data: Error %d", receive_data_status);
+		close(file_handle);
 		return receive_data_status;
 	}
 
 	return SUCCESS;
 }
 
-uint8_t treceive(int send_socket, struct sockaddr_in** sockaddr, size_t* slen, const char* source_filename, const char* destination_filename)
+uint8_t treceive(int send_socket, struct sockaddr_in** sockaddr, socklen_t* slen, const char* source_filename, const char* destination_filename)
 {
 	int file_handle = open(destination_filename, O_WRONLY | O_CREAT | O_TRUNC);
 	if (file_handle == INVALID_HANDLE_VALUE)
 	{
-		printf("Unable to open file. Try again\n");
+		fprintf(stderr, "Unable to open file: %s\n", strerror(errno));
 		return FILE_CREATION_ERROR;
 	}
 
 	char* request_buffer;
-	const char* mode = "octet";
 	operation_type optype = opreceive;
-	size_t buffer_length = make_rwrq_message(optype, source_filename, mode, &request_buffer);
+
+	size_t buffer_length = make_rwrq_message(optype, source_filename, "octet", &request_buffer);
+	if (buffer_length == 0)
+	{
+		fprintf(stderr, "Unable to create buffer: %s\n", strerror(errno));
+		return MEM_ALLOCATION_ERROR;
+	}
+
 	uint8_t send_data_status = send_data(send_socket, &request_buffer, buffer_length, sockaddr, slen);
 	if (send_data_status != SUCCESS)
 	{
-		printf("Unable to send data. Try again");
+		fprintf(stderr, "Unable to send data\n");
 		return send_data_status;
 	}
 
-	int receive_data_status = receive_data(send_socket, optype, file_handle, sockaddr, slen);
+	uint8_t receive_data_status = receive_data(send_socket, optype, file_handle, sockaddr, slen);
 	if (receive_data_status != SUCCESS)
 	{
 		printf("Unable to receive data. Try again");
+		close(file_handle);
 		return receive_data_status;
 	}
+	close(file_handle);
 
 	return SUCCESS;
 }
@@ -142,6 +157,11 @@ size_t make_rwrq_message(operation_type op_code, const char* filename, const cha
 {
 	size_t buffer_length = strlen(filename) + strlen(mode) + 2 + 2;
 	*message_buffer = (char*)malloc(buffer_length * sizeof(char));
+
+	if (*message_buffer == NULL)
+	{
+		return 0;
+	}
 
 	(*message_buffer)[0] = 0x00;
 	if (op_code == opreceive)
@@ -162,42 +182,60 @@ size_t make_rwrq_message(operation_type op_code, const char* filename, const cha
 	return buffer_length;
 }
 
-uint8_t send_data(int socket, char** buffer, size_t data_length, struct sockaddr_in** recv_address, size_t* recv_address_length)
+uint8_t send_data(int socket, char** buffer, size_t data_length, struct sockaddr_in** recv_address, socklen_t* recv_address_length)
 {
 	int32_t send_result = sendto(socket, *buffer, data_length, 0, (struct sockaddr*)*recv_address, *recv_address_length);
 	if (send_result == -1)
 	{
-		printf("Send failed\n");
 		return SEND_DATA_ERROR;
 	};
 	return SUCCESS;
 }
 
-uint8_t receive_data(int socket, operation_type op_code, int file_handle, struct sockaddr_in** recv_address, size_t* recv_address_length)
+uint8_t receive_data(int socket, operation_type op_code, int file_handle, struct sockaddr_in** recv_address, socklen_t* recv_address_length)
 {
 	const int receive_buffer_size = 1024;
 	char rb[receive_buffer_size];
 	char* receive_buffer = rb;
 
-	int received_bytes = 1;
+	int received_bytes = 0, last_chunk = 0;
 	do
 	{
 		received_bytes = recvfrom(socket, receive_buffer, receive_buffer_size, 0, (struct sockaddr*) *recv_address, recv_address_length);
 
 		if (received_bytes > 0)
 		{
-			printf("Bytes received: %d\n", received_bytes);
+			fprintf(stdout, "Bytes received: %d\n", received_bytes);
 
 			uint16_t message_type = get_message_type(&receive_buffer, received_bytes);
 
+			if (message_type == 0)
+			{
+				fprintf(stderr, "Undefined message type\n");
+				return RECEIVE_DATA_ERROR;
+			}
+
 			if (message_type == ERR)
 			{
+				char* message_buffer;
+				size_t message_length;
+				uint16_t error_code = parse_error_response(&receive_buffer, received_bytes, &message_buffer, &message_length);
+				if (error_code == 0)
+				{
+					fprintf(stdout, "Server replied: Undefined error");
+				}
+				else
+				{
+					fprintf(stdout, "Server replied: %d, %s", error_code, message_buffer);
+				}
 
+				free(message_buffer);
+				return SUCCESS;
 			}
 
 			if (op_code == opsend && message_type == ACK)
 			{
-				uint8_t on_send_result = on_send_chunk_ready(&receive_buffer, received_bytes, file_handle, socket, recv_address, recv_address_length);
+				uint8_t on_send_result = on_send_chunk_ready(&receive_buffer, received_bytes, file_handle, socket, recv_address, recv_address_length, &last_chunk);
 				if (on_send_result != SUCCESS)
 				{
 					return on_send_result;
@@ -205,7 +243,7 @@ uint8_t receive_data(int socket, operation_type op_code, int file_handle, struct
 			}
 			else if (op_code == opreceive && message_type == DATA)
 			{
-				uint8_t on_receive_result = on_receive_chunk_ready(&receive_buffer, received_bytes, file_handle, socket, recv_address, recv_address_length);
+				uint8_t on_receive_result = on_receive_chunk_ready(&receive_buffer, received_bytes, file_handle, socket, recv_address, recv_address_length, &last_chunk);
 				if (on_receive_result != SUCCESS)
 				{
 					return on_receive_result;
@@ -214,72 +252,107 @@ uint8_t receive_data(int socket, operation_type op_code, int file_handle, struct
 		}
 		else if (received_bytes == 0)
 		{
-			printf("Connection closed\n");
+			fprintf(stdout, "Connection closed\n");
 		}
 		else
 		{
-			printf("Function recvfrom() failed\n");
+			fprintf(stderr, "Function recvfrom failed: %s\n", strerror(errno));
 			return RECEIVE_DATA_ERROR;
 		}
 
-	} while (received_bytes > 0);
+	} while (last_chunk != 1 && received_bytes > 0);
 
 	return SUCCESS;
 }
 
-uint8_t on_receive_chunk_ready(char **buffer, int received_size, int file_handle, int socket, struct sockaddr_in** recv_address, size_t* recv_address_length)
+uint8_t on_receive_chunk_ready(char **buffer, int received_size, int file_handle, int socket, struct sockaddr_in** recv_address, size_t* recv_address_length, int8_t* last_chunk)
 {
-	const int data_buffer_length = 1024;
-	char rb[data_buffer_length];
-	char* received_buffer = rb;
+	char* received_buffer;
 
 	int received_data_buffer_size = 0;
-	int16_t block_num = parse_data_response(buffer, received_size, &received_buffer, &received_data_buffer_size);
-	printf("Recorded %d, size %d\n", block_num, received_data_buffer_size);
-	//lseek(file_handle, (block_num-1)*512, SEEK_SET);
+	uint16_t block_num = parse_data_response(buffer, received_size, &received_buffer, &received_data_buffer_size);
+	if (block_num == 0)
+	{
+		fprintf(stderr, "Unable to get response data\n");
+		return block_num;
+	}
+
+	lseek(file_handle, (block_num - 1) * CHUNK_SIZE, SEEK_SET);
 	ssize_t save_file_status = write(file_handle, received_buffer, received_data_buffer_size);
+
+	free(received_buffer);
 
 	if (save_file_status < received_data_buffer_size)
 	{
-		printf("Unable to save data: %s\n", strerror(errno));
-		return save_file_status;
+		fprintf(stderr, "Unable to save data: %s\n", strerror(errno));
+		return FILE_CREATION_ERROR;
 	}
 
-	char amb[4];
-	char* ack_message_buffer = amb;
+	char* ack_message_buffer;
+	int32_t ack_message_size = make_ack_message(block_num, &ack_message_buffer);
 
-	uint8_t ack_message_size = make_ack_message(block_num, &ack_message_buffer);
+	if (ack_message_size == -1)
+	{
+		fprintf(stderr, "Unable to create ack message: %s\n", strerror(errno));
+		return SEND_DATA_ERROR;
+	}
+
 	uint8_t send_ack_status = send_data(socket, &ack_message_buffer, ack_message_size, recv_address, recv_address_length);
+	free(ack_message_buffer);
 
 	if (send_ack_status != SUCCESS)
 	{
-		printf("Sending ACK message failed\n");
+		fprintf(stderr, "Sending ACK message failed\n");
 		return send_ack_status;
+	}
+
+	if (received_data_buffer_size < CHUNK_SIZE)
+	{
+		*last_chunk = 1;
 	}
 
 	return SUCCESS;
 }
 
-uint8_t on_send_chunk_ready(char** buffer, int received_size, int file_handle, int socket, struct sockaddr_in** recv_address, size_t* recv_address_length)
+uint8_t on_send_chunk_ready(char** buffer, int received_size, int file_handle, int socket, struct sockaddr_in** recv_address, size_t* recv_address_length, int8_t* last_chunk)
 {
-	const int ack_message_buffer_size = 4;
-	char amb[ack_message_buffer_size];
-	char* ack_message_buffer = amb;
-	uint16_t block_num = parse_acknowledgement_response(&ack_message_buffer, ack_message_buffer_size);
+	int32_t block_num = parse_acknowledgement_response(buffer, received_size);
+
+	if (block_num == -1)
+	{
+		fprintf(stderr, "Parsing ACK message failed\n");
+		return RECEIVE_DATA_ERROR;
+	}
+
+	if (*last_chunk == -1)
+	{
+		*last_chunk = 1;
+		return SUCCESS;
+	}
 
 	block_num++;
 
-	const int file_chunk_buffer_size = 512;
-	char fcb[file_chunk_buffer_size];
-	char* file_chunk_buffer = fcb;
-	int bytes_read = read(file_handle, fcb, file_chunk_buffer_size);
+	char file_chunk_buffer[512];
+	ssize_t bytes_read = read(file_handle, file_chunk_buffer, 512);
 
+	if (bytes_read == -1)
+	{
+		fprintf(stderr, "Error reading file: %s\n", strerror(errno));
+		return FILE_READ_ERROR;
+	}
 
-	const int data_message_buffer_size = 1024;
-	char dmb[data_message_buffer_size];
-	char* data_message_buffer = dmb;
-	int32_t data_message_size = make_data_message(block_num, &file_chunk_buffer, bytes_read, &data_message_buffer);
+	char* data_message_buffer;
+	char* fcb = file_chunk_buffer;
+	int32_t data_message_size = make_data_message(block_num, &fcb, bytes_read, &data_message_buffer);
+
+	if (data_message_size == -1)
+	{
+		fprintf(stderr, "Error creating data message\n");
+		return SEND_DATA_ERROR;
+	}
+
 	uint8_t send_file_status = send_data(socket, &data_message_buffer, data_message_size, recv_address, recv_address_length);
+	free(data_message_buffer);
 
 	if (send_file_status != SUCCESS)
 	{
@@ -287,33 +360,66 @@ uint8_t on_send_chunk_ready(char** buffer, int received_size, int file_handle, i
 		return send_file_status;
 	}
 
+	if (bytes_read < CHUNK_SIZE)
+	{
+		*last_chunk = 1;
+	}
+
 	return SUCCESS;
 }
 
-int16_t parse_data_response(char **receive_buffer, int data_length, char **destination_data_buffer, int* dest_data_buffer_size)
+uint16_t parse_data_response(char **receive_buffer, int data_length, char **destination_data_buffer, int* dest_data_buffer_size)
 {
 	const int header_size = 4;
 	if (data_length < header_size || (((*receive_buffer)[0] << 8) | (*receive_buffer)[1]) != 0x0003)
 	{
 		return -1;
 	}
-	int16_t block_num = (int16_t)(((*receive_buffer)[2] << 8) | (*receive_buffer)[3]);
+	int32_t block_num = (int32_t)(((*receive_buffer)[2] << 8) | (*receive_buffer)[3]);
 
 	int useful_data_len = data_length - header_size;
+	*destination_data_buffer = (char*)malloc(useful_data_len * sizeof(char));
+
+	if (*destination_data_buffer == NULL)
+	{
+		return -1;
+	}
+
 	memcpy(*destination_data_buffer, &((*receive_buffer)[4]), useful_data_len);
 	*dest_data_buffer_size = useful_data_len;
+
 	return block_num;
 }
 
-uint16_t parse_acknowledgement_response(char** receive_buffer, int data_length)
+int32_t parse_acknowledgement_response(char** receive_buffer, int data_length)
 {
 	const int header_size = 4;
 	if (data_length < header_size || (((*receive_buffer)[0] << 8) | (*receive_buffer)[1]) != 0x0004)
 	{
 		return -1;
 	}
-	uint16_t block_num = ((*receive_buffer)[2] << 8) | (*receive_buffer)[3];
+	int32_t block_num = (int32_t)((*receive_buffer)[2] << 8) | (*receive_buffer)[3];
 	return block_num;
+}
+
+uint16_t parse_error_response(char** receive_buffer, int data_length, char** message_text_buffer, size_t* message_text_length)
+{
+	const int header_size = 4;
+	if (data_length < header_size || (((*receive_buffer)[0] << 8) | (*receive_buffer)[1]) != 0x0005)
+	{
+		return 0;
+	}
+	uint16_t error_num = ((*receive_buffer)[2] << 8) | (*receive_buffer)[3];
+
+	*message_text_length = data_length - header_size;
+	*message_text_buffer = (char*)malloc(*message_text_length * sizeof(char));
+	if (*message_text_buffer == NULL)
+	{
+		return 0;
+	}
+	memcpy(*message_text_buffer, &((*receive_buffer)[4]), *message_text_length);
+
+	return error_num;
 }
 
 uint16_t get_message_type(char** receive_buffer, size_t data_length)
