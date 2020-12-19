@@ -38,6 +38,7 @@
 #define RECEIVE_DATA_ERROR 8
 #define INVALID_HANDLE_VALUE -1
 
+static uint8_t debug_mode;
 typedef enum{
 	opsend, opreceive
 } operation_type;

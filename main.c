@@ -35,6 +35,16 @@ int32_t main(int32_t argc, char* argv[])
 	const char* source_filename = argv[4];
 	const char* destination_filename = argv[5];
 
+	debug_mode = 0;
+	if (argc > 6)
+	{
+		const char* str_debug = argv[6];
+		if (strcmp(str_debug, "true") == 0)
+		{
+			debug_mode = 1;
+		}
+	}
+
 	struct sockaddr_in sockaddr, *sa;
 
 	int usocket = socket(AF_INET, SOCK_DGRAM, 0);
@@ -205,11 +215,19 @@ uint8_t receive_data(int socket, operation_type op_code, int file_handle, struct
 	int received_bytes = 0, last_chunk = 0;
 	do
 	{
+		if (debug_mode != 0)
+		{
+			fprintf(stdout, "Wait...\n");
+		}
+
 		received_bytes = recvfrom(socket, receive_buffer, receive_buffer_size, 0, (struct sockaddr*) *recv_address, recv_address_length);
 
 		if (received_bytes > 0)
 		{
-			//fprintf(stdout, "Bytes received: %d\n", received_bytes);
+			if (debug_mode != 0)
+			{
+				fprintf(stdout, "Bytes received: %d\n", received_bytes);
+			}
 
 			uint16_t message_type = get_message_type(&receive_buffer, received_bytes);
 
@@ -310,6 +328,11 @@ uint8_t on_receive_chunk_ready(char **buffer, int received_size, int file_handle
 		return send_ack_status;
 	}
 
+	if (debug_mode != 0)
+	{
+		fprintf(stdout, "Received block %d\n", block_num);
+	}
+
 	if (received_data_buffer_size < CHUNK_SIZE)
 	{
 		*last_chunk = 1;
@@ -362,6 +385,10 @@ uint8_t on_send_chunk_ready(char** buffer, int received_size, int file_handle, i
 	{
 		printf("Sending file failed\n");
 		return send_file_status;
+	}
+
+	if (debug_mode != 0){
+		fprintf(stdout, "Send block %d\n", block_num);
 	}
 
 	if (bytes_read < CHUNK_SIZE)
