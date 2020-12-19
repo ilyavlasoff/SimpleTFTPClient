@@ -209,7 +209,7 @@ uint8_t receive_data(int socket, operation_type op_code, int file_handle, struct
 
 		if (received_bytes > 0)
 		{
-			fprintf(stdout, "Bytes received: %d\n", received_bytes);
+			//fprintf(stdout, "Bytes received: %d\n", received_bytes);
 
 			uint16_t message_type = get_message_type(&receive_buffer, received_bytes);
 
@@ -375,7 +375,7 @@ uint8_t on_send_chunk_ready(char** buffer, int received_size, int file_handle, i
 uint16_t parse_data_response(char **receive_buffer, int data_length, char **destination_data_buffer, int* dest_data_buffer_size)
 {
 	const int header_size = 4;
-	if (data_length < header_size || (((*receive_buffer)[0] << 8) | (*receive_buffer)[1]) != 0x0003)
+	if (data_length < header_size || ((((short)((*receive_buffer)[0])) << 8) | (0x00ff & ((*receive_buffer)[1]))) != 0x0003)
 	{
 		return 0;
 	}
@@ -398,22 +398,22 @@ uint16_t parse_data_response(char **receive_buffer, int data_length, char **dest
 int32_t parse_acknowledgement_response(char** receive_buffer, int data_length)
 {
 	const int header_size = 4;
-	if (data_length < header_size || (((*receive_buffer)[0] << 8) | (*receive_buffer)[1]) != 0x0004)
+	if (data_length < header_size || ((((short)((*receive_buffer)[0])) << 8) | (0x00ff & ((*receive_buffer)[1]))) != 0x0004)
 	{
 		return -1;
 	}
-	int32_t block_num = (int32_t)((*receive_buffer)[2] << 8) | (*receive_buffer)[3];
+	int32_t block_num = (int32_t)(((short)((*receive_buffer)[2])) << 8) | (0x00ff & ((*receive_buffer)[3]));
 	return block_num;
 }
 
 uint16_t parse_error_response(char** receive_buffer, int data_length, char** message_text_buffer, size_t* message_text_length)
 {
 	const int header_size = 4;
-	if (data_length < header_size || (((*receive_buffer)[0] << 8) | (*receive_buffer)[1]) != 0x0005)
+	if (data_length < header_size || ((((short)((*receive_buffer)[0])) << 8) | (0x00ff & ((*receive_buffer)[1]))) != 0x0005)
 	{
 		return 0;
 	}
-	uint16_t error_num = ((*receive_buffer)[2] << 8) | (*receive_buffer)[3];
+	uint16_t error_num = (((short)((*receive_buffer)[2])) << 8) | (0x00ff & ((*receive_buffer)[3]));
 
 	*message_text_length = data_length - header_size;
 	*message_text_buffer = (char*)malloc(*message_text_length * sizeof(char));
@@ -433,7 +433,7 @@ uint16_t get_message_type(char** receive_buffer, size_t data_length)
 	{
 		return 0;
 	}
-	uint16_t message_type = (((*receive_buffer)[0] << 8) | (*receive_buffer)[1]);
+	uint16_t message_type = (((short)((*receive_buffer)[0])) << 8) | (0x00ff & ((*receive_buffer)[1]));
 	if (message_type > 5)
 	{
 		return 0;
