@@ -73,6 +73,10 @@ int32_t main(int32_t argc, char* argv[])
 	{
 		fprintf(stderr, "Unable to complete operation: %s\n", strerror(errno));
 	}
+	else
+	{
+		fprintf(stdout, "Operation completed\n");
+	}
 
 	return operation_status;
 }
@@ -117,7 +121,7 @@ uint8_t tsend(int send_socket, struct sockaddr_in** sockaddr, socklen_t* slen, c
 
 uint8_t treceive(int send_socket, struct sockaddr_in** sockaddr, socklen_t* slen, const char* source_filename, const char* destination_filename)
 {
-	int file_handle = open(destination_filename, O_WRONLY | O_CREAT | O_TRUNC);
+	int file_handle = open(destination_filename, O_RDWR | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
 	if (file_handle == INVALID_HANDLE_VALUE)
 	{
 		fprintf(stderr, "Unable to open file: %s\n", strerror(errno));
@@ -144,7 +148,7 @@ uint8_t treceive(int send_socket, struct sockaddr_in** sockaddr, socklen_t* slen
 	uint8_t receive_data_status = receive_data(send_socket, optype, file_handle, sockaddr, slen);
 	if (receive_data_status != SUCCESS)
 	{
-		printf("Unable to receive data. Try again");
+		fprintf(stderr, "Unable to receive data\n");
 		close(file_handle);
 		return receive_data_status;
 	}
@@ -222,11 +226,11 @@ uint8_t receive_data(int socket, operation_type op_code, int file_handle, struct
 				uint16_t error_code = parse_error_response(&receive_buffer, received_bytes, &message_buffer, &message_length);
 				if (error_code == 0)
 				{
-					fprintf(stdout, "Server replied: Undefined error");
+					fprintf(stdout, "Server replied: Undefined error\n");
 				}
 				else
 				{
-					fprintf(stdout, "Server replied: %d, %s", error_code, message_buffer);
+					fprintf(stdout, "Server replied: %d, %s\n", error_code, message_buffer);
 				}
 
 				free(message_buffer);
@@ -373,16 +377,16 @@ uint16_t parse_data_response(char **receive_buffer, int data_length, char **dest
 	const int header_size = 4;
 	if (data_length < header_size || (((*receive_buffer)[0] << 8) | (*receive_buffer)[1]) != 0x0003)
 	{
-		return -1;
+		return 0;
 	}
-	int32_t block_num = (int32_t)(((*receive_buffer)[2] << 8) | (*receive_buffer)[3]);
+	uint16_t block_num = (((short)((*receive_buffer)[2])) << 8) | (0x00ff & ((*receive_buffer)[3]));
 
 	int useful_data_len = data_length - header_size;
 	*destination_data_buffer = (char*)malloc(useful_data_len * sizeof(char));
 
 	if (*destination_data_buffer == NULL)
 	{
-		return -1;
+		return 0;
 	}
 
 	memcpy(*destination_data_buffer, &((*receive_buffer)[4]), useful_data_len);
